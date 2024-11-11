@@ -8,6 +8,7 @@ import (
 	"log"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/net/netutil"
 
 	"github.com/tmc/langchaingo/embeddings"
 	"github.com/tmc/langchaingo/llms"
@@ -242,7 +245,7 @@ func main() {
 
 	// Creating server configuration with logging
 	server := http.Server{
-		Addr:           port,
+		// Addr:           port,
 		MaxHeaderBytes: 50 << 20,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			mu.Lock()
@@ -265,7 +268,18 @@ func main() {
 
 	// Seperate goroutine for running the listener which is synchronous and blocking
 	go func() {
-		if err := server.ListenAndServe(); err != nil {
+		// Create a listener on port
+		listener, err := net.Listen("tcp", port)
+		if err != nil {
+			panic(err)
+		}
+		defer listener.Close()
+
+		// Create a limit listener to handle only 3 http connections at a time
+		limitListener := netutil.LimitListener(listener, 3)
+
+		// Serve http requests on the limit listener
+		if err := server.Serve(limitListener); err != nil {
 			if err != http.ErrServerClosed {
 				panic(err)
 			}

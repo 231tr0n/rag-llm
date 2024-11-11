@@ -2,7 +2,10 @@ module github.com/231tr0n/rag-llm
 
 go 1.23.3
 
-require github.com/tmc/langchaingo v0.1.12
+require (
+	github.com/tmc/langchaingo v0.1.12
+	golang.org/x/net v0.25.0
+)
 
 require (
 	github.com/PuerkitoBio/purell v1.1.1 // indirect
@@ -29,7 +32,6 @@ require (
 	github.com/weaviate/weaviate-go-client/v4 v4.13.1 // indirect
 	go.mongodb.org/mongo-driver v1.14.0 // indirect
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1 // indirect
-	golang.org/x/net v0.25.0 // indirect
 	golang.org/x/oauth2 v0.20.0 // indirect
 	golang.org/x/sys v0.20.0 // indirect
 	golang.org/x/text v0.15.0 // indirect
