@@ -22,8 +22,8 @@ services:
     image: ollama/ollama:latest
     container_name: ollama
     pull_policy: always
-    ports:
-    - "11434:11434"
+    # ports:
+    # - "11434:11434"
     restart: unless-stopped
     volumes:
     - ollama:/root/.ollama
@@ -34,9 +34,9 @@ services:
     image: cr.weaviate.io/semitechnologies/weaviate:latest
     container_name: weaviate
     pull_policy: always
-    ports:
-    - 8080:8080
-    - 50051:50051
+    # ports:
+    # - 8080:8080
+    # - 50051:50051
     restart: unless-stopped
     volumes:
     - weaviate_data:/var/lib/weaviate
