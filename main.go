@@ -123,6 +123,7 @@ func init() {
 func addDocumentsHandler(w http.ResponseWriter, req *http.Request) {
 	addDocReq := &addDocumentsRequest{}
 
+	// Check if content-type is correct in the http request
 	contentType := req.Header.Get("Content-Type")
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil || mediaType != "application/json" {
@@ -131,6 +132,7 @@ func addDocumentsHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Decode request body
 	dec := json.NewDecoder(req.Body)
 	dec.DisallowUnknownFields()
 	err = dec.Decode(addDocReq)
@@ -140,6 +142,7 @@ func addDocumentsHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Add request documents to vector store
 	var wvDocs []schema.Document
 	for _, doc := range addDocReq.Documents {
 		wvDocs = append(wvDocs, schema.Document{PageContent: doc.Information})
@@ -155,6 +158,7 @@ func addDocumentsHandler(w http.ResponseWriter, req *http.Request) {
 func queryHandler(w http.ResponseWriter, req *http.Request) {
 	queryReq := &queryRequest{}
 
+	// Check if content-type is correct in the http request
 	contentType := req.Header.Get("Content-Type")
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil || mediaType != "application/json" {
@@ -163,6 +167,7 @@ func queryHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Decode request body
 	dec := json.NewDecoder(req.Body)
 	dec.DisallowUnknownFields()
 	err = dec.Decode(queryReq)
@@ -172,6 +177,7 @@ func queryHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Search if query with similarity exists in vector store
 	docs, err := vectorStore.SimilaritySearch(ragCtx, queryReq.Query, 3)
 	if err != nil {
 		http.Error(w, "Error searching for similarity in vector store", http.StatusInternalServerError)
@@ -183,6 +189,7 @@ func queryHandler(w http.ResponseWriter, req *http.Request) {
 		docsContents = append(docsContents, doc.PageContent)
 	}
 
+	// Prompt the llm with context and query
 	ragQuery := fmt.Sprintf(ragQueryTemplate, queryReq.Query, strings.Join(docsContents, "\n"))
 	ragResponse, err := llms.GenerateFromSinglePrompt(ragCtx, llmClient, ragQuery)
 	if err != nil {
@@ -191,12 +198,15 @@ func queryHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Marshal the llm response to json
 	js, err := json.Marshal(ragResponse)
 	if err != nil {
 		http.Error(w, "Error marshaling response from llm", http.StatusInternalServerError)
 		slog.Error(err.Error())
 		return
 	}
+
+	// Send marshalled json as response with 200 status
 	w.Header().Set("Content-Type", "application/json")
 	_, err = w.Write(js)
 	if err != nil {
