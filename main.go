@@ -93,7 +93,7 @@ func init() {
 
 	// Declare new ollama llm client
 	var err error
-	llmClient, err = ollama.New(ollama.WithServerURL(cmp.Or(os.Getenv("OLLAMA_SERVER_URL"), "http://localhost:11434")), ollama.WithModel(cmp.Or(os.Getenv("MODEL_NAME"), "llama3.2")))
+	llmClient, err = ollama.New(ollama.WithServerURL(cmp.Or(os.Getenv("OLLAMA_SERVER_URL"), "localhost:11434")), ollama.WithModel(cmp.Or(os.Getenv("LLM_MODEL_NAME"), "llama3.2")))
 	if err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
@@ -110,7 +110,7 @@ func init() {
 	vectorStore, err = weaviate.New(
 		weaviate.WithEmbedder(emb),
 		weaviate.WithScheme("http"),
-		weaviate.WithHost("localhost"+cmp.Or(os.Getenv("WEAVIATE_SERVER_PORT"), ":8080")),
+		weaviate.WithHost(cmp.Or(os.Getenv("WEAVIATE_SERVER_URL"), "localhost:8080")),
 		weaviate.WithIndexName("Document"),
 	)
 	if err != nil {
