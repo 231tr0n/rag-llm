@@ -3,6 +3,7 @@ services:
   rag-llm:
     image: rag-llm:latest
     container_name: rag-llm
+    network_mode: host
     pull_policy: never
     ports:
     - "8000:8000"
@@ -18,6 +19,7 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
+    network_mode: host
     pull_policy: always
     ports:
     - "11434:11434"
@@ -27,7 +29,8 @@ services:
   weaviate:
     image: cr.weaviate.io/semitechnologies/weaviate:latest
     container_name: weaviate
-    pull_policy: never
+    network_mode: host
+    pull_policy: always
     ports:
     - 8080:8080
     - 50051:50051
