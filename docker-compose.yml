@@ -34,3 +34,6 @@ services:
     restart: unless-stopped
     volumes:
     - weaviate_data:/var/lib/weaviate
+volumes:
+  ollama: {}
+  weaviate_data: {}
