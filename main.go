@@ -120,6 +120,9 @@ func init() {
 
 	// Create new context which is used by both llm client and vector store client
 	ragCtx = context.Background()
+
+	// Initialize a mutex
+	mu = &sync.Mutex{}
 }
 
 // addDocumentsHandler is used to store information provided to the vector store
