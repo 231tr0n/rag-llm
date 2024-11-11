@@ -86,7 +86,7 @@ Context:
 %s
 `
 
-var ollamaServerURL = cmp.Or(os.Getenv("OLLAMA_SERVER_URL"), "localhost:11434")
+var ollamaServerURL = cmp.Or(os.Getenv("OLLAMA_SERVER_URL"), "http://localhost:11434")
 var llmModelName = cmp.Or(os.Getenv("LLM_MODEL_NAME"), "llama3.2")
 var weaviateServerURL = cmp.Or(os.Getenv("WEAVIATE_SERVER_URL"), "localhost:8080")
 var webServerPort = cmp.Or(os.Getenv("WEB_SERVER_PORT"), ":8000")
