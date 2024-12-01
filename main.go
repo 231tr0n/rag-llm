@@ -13,6 +13,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -86,21 +87,34 @@ Context:
 %s
 `
 
-var ollamaServerURL = cmp.Or(os.Getenv("OLLAMA_SERVER_URL"), "http://localhost:11434")
-var llmModelName = cmp.Or(os.Getenv("LLM_MODEL_NAME"), "llama3.2")
-var weaviateServerURL = cmp.Or(os.Getenv("WEAVIATE_SERVER_URL"), "localhost:8080")
-var webServerPort = cmp.Or(os.Getenv("WEB_SERVER_PORT"), ":8000")
+var connections int
+var ollamaServerURL string
+var llmModelName string
+var weaviateServerURL string
+var webServerPort string
 
 func init() {
+	var err error
+
 	// Remove prefix and default flags for standard library logger
 	log.SetPrefix("")
 	log.SetFlags(0)
 
+	ollamaServerURL = cmp.Or(os.Getenv("OLLAMA_SERVER_URL"), "http://localhost:11434")
+	llmModelName = cmp.Or(os.Getenv("LLM_MODEL_NAME"), "llama3.2")
+	weaviateServerURL = cmp.Or(os.Getenv("WEAVIATE_SERVER_URL"), "localhost:8080")
+	webServerPort = cmp.Or(os.Getenv("WEB_SERVER_PORT"), ":8000")
+	// Paring connections env variable string to int
+	connections, err = strconv.Atoi(cmp.Or(os.Getenv("WEB_SERVER_CONNECTIONS"), "3"))
+	if err != nil {
+		slog.Error(err.Error())
+		os.Exit(1)
+	}
+
 	// Log env variables
-	slog.Info("Environment parameters", "OLLAMA_SERVER_URL", ollamaServerURL, "LLM_MODEL_NAME", llmModelName, "WEAVIATE_SERVER_URL", weaviateServerURL, "WEB_SERVER_PORT", webServerPort)
+	slog.Info("Environment parameters", "OLLAMA_SERVER_URL", ollamaServerURL, "LLM_MODEL_NAME", llmModelName, "WEAVIATE_SERVER_URL", weaviateServerURL, "WEB_SERVER_PORT", webServerPort, "WEB_SERVER_CONNECTIONS", connections)
 
 	// Declare new ollama llm client
-	var err error
 	llmClient, err = ollama.New(ollama.WithServerURL(ollamaServerURL), ollama.WithModel(llmModelName))
 	if err != nil {
 		slog.Error(err.Error())
@@ -283,8 +297,8 @@ func main() {
 		}
 		defer listener.Close()
 
-		// Create a limit listener to handle only 3 http connections at a time
-		limitListener := netutil.LimitListener(listener, 3)
+		// Create a limit listener to handle only given number of connections at a time
+		limitListener := netutil.LimitListener(listener, connections)
 
 		// Serve http requests on the limit listener
 		if err := server.Serve(limitListener); err != nil {
