@@ -11,7 +11,7 @@ curl -H 'Content-Type: application/json' \
 ## Adding documents
 ```bash
 curl -H 'Content-Type: application/json' \
-  -d '{"documents": [{"information": "Bob is an idiot."}]}' \
+  -d '{"document": "Bob is an idiot."}' \
   -X POST \
   http://localhost:8000/add
 ```

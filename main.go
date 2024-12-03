@@ -13,31 +13,33 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
-	"strings"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
 
 	"golang.org/x/net/netutil"
 
-	"github.com/tmc/langchaingo/embeddings"
-	"github.com/tmc/langchaingo/llms"
-	"github.com/tmc/langchaingo/llms/ollama"
-	"github.com/tmc/langchaingo/schema"
-	"github.com/tmc/langchaingo/vectorstores/weaviate"
+	"github.com/firebase/genkit/go/ai"
+	"github.com/firebase/genkit/go/plugins/localvec"
+	"github.com/firebase/genkit/go/plugins/ollama"
 )
 
-// Document addition request structs for unmarshaling request json
-type document struct {
-	Information string
-}
-type addDocumentsRequest struct {
-	Documents []document
+// Collection of documents
+type addDocumentRequest struct {
+	Document string
 }
 
-// Query request structs for unmarshaling query json
+// queryRequest structs for unmarshaling query json
 type queryRequest struct {
 	Query string
+}
+
+// queryResponse structs for unmarshaling query json
+type queryResponse struct {
+	Query    string
+	Response string
+	Context  string
 }
 
 // WrapperResponseWriter for logging functionality
@@ -55,29 +57,18 @@ func (w *wrapperResponseWriter) WriteHeader(statusCode int) {
 // Mutex for running a single request at a time
 var mu *sync.Mutex
 
-// VectorDatabase client
-var vectorStore weaviate.Store
+// indexer is local vector store indexer
+var indexer ai.Indexer
 
-// Ollama client
-var llmClient *ollama.LLM
+// retriever is local vector store retriever
+var retriever ai.Retriever
 
-// Context used by both ollama client and vector database
-var ragCtx context.Context
+// Ollama model
+var llmModel ai.Model
 
 // Rag model query template to be provided for the llm
 const ragQueryTemplate = `
-I will ask you a question and will provide some additional context information.
-Assume this context information is factual and correct, as part of internal
-documentation.
-If the question relates to the context, answer it using the context.
-If the question does not relate to the context, answer it as normal.
-
-For example, let's say the context has nothing in it about tropical flowers;
-then if I ask you about tropical flowers, just answer what you know about them
-without referring to the context.
-
-For example, if the context does mention minerology and I ask you about that,
-provide information from the context along with general knowledge.
+You are a helpful agent that answers my questions with the help of the context if provided.
 
 Question:
 %s
@@ -86,56 +77,74 @@ Context:
 %s
 `
 
-var ollamaServerURL = cmp.Or(os.Getenv("OLLAMA_SERVER_URL"), "http://localhost:11434")
-var llmModelName = cmp.Or(os.Getenv("LLM_MODEL_NAME"), "llama3.2")
-var weaviateServerURL = cmp.Or(os.Getenv("WEAVIATE_SERVER_URL"), "localhost:8080")
-var webServerPort = cmp.Or(os.Getenv("WEB_SERVER_PORT"), ":8000")
+var connections int
+var ollamaServerURL string
+var llmModelName string
+var webServerPort string
 
 func init() {
+	var err error
+
 	// Remove prefix and default flags for standard library logger
 	log.SetPrefix("")
 	log.SetFlags(0)
 
-	// Log env variables
-	slog.Info("Environment parameters", "OLLAMA_SERVER_URL", ollamaServerURL, "LLM_MODEL_NAME", llmModelName, "WEAVIATE_SERVER_URL", weaviateServerURL, "WEB_SERVER_PORT", webServerPort)
-
-	// Declare new ollama llm client
-	var err error
-	llmClient, err = ollama.New(ollama.WithServerURL(ollamaServerURL), ollama.WithModel(llmModelName))
+	ollamaServerURL = cmp.Or(os.Getenv("OLLAMA_SERVER_URL"), "http://localhost:11434")
+	llmModelName = cmp.Or(os.Getenv("LLM_MODEL_NAME"), "llama3.2")
+	webServerPort = cmp.Or(os.Getenv("WEB_SERVER_PORT"), ":8000")
+	// Paring connections env variable string to int
+	connections, err = strconv.Atoi(cmp.Or(os.Getenv("WEB_SERVER_CONNECTIONS"), "3"))
 	if err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
+	}
+
+	// Log env variables
+	slog.Info("Environment parameters", "OLLAMA_SERVER_URL", ollamaServerURL, "LLM_MODEL_NAME", llmModelName, "WEB_SERVER_PORT", webServerPort, "WEB_SERVER_CONNECTIONS", connections)
+
+	// Initalize ollama package with server address
+	err = ollama.Init(context.Background(), &ollama.Config{
+		ServerAddress: ollamaServerURL,
+	})
+	if err != nil {
+		slog.Error(err.Error())
+		os.Exit(1)
+	}
+	// Declare new ollama llm client
+	llmModel = ollama.DefineModel(ollama.ModelDefinition{
+		Name: llmModelName,
+		Type: "chat",
+	},
+		&ai.ModelCapabilities{
+			Multiturn:  true,
+			SystemRole: true,
+			Tools:      false,
+			Media:      false,
+		},
+	)
+
+	// Initialize localvec package
+	if err := localvec.Init(); err != nil {
+		log.Fatal(err)
 	}
 
 	// Get embeddings of the llm client
-	emb, err := embeddings.NewEmbedder(llmClient)
+	emb := ollama.Embedder(ollamaServerURL)
+
+	// Create new local vector store with embeddings
+	indexer, retriever, err = localvec.DefineIndexerAndRetriever("doc", localvec.Config{Dir: "temp", Embedder: emb})
 	if err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
-
-	// Create new vector store client with embeddings of llm
-	vectorStore, err = weaviate.New(
-		weaviate.WithEmbedder(emb),
-		weaviate.WithScheme("http"),
-		weaviate.WithHost(weaviateServerURL),
-		weaviate.WithIndexName("Document"),
-	)
-	if err != nil {
-		slog.Error(err.Error())
-		os.Exit(1)
-	}
-
-	// Create new context which is used by both llm client and vector store client
-	ragCtx = context.Background()
 
 	// Initialize a mutex
 	mu = &sync.Mutex{}
 }
 
-// addDocumentsHandler is used to store information provided to the vector store
-func addDocumentsHandler(w http.ResponseWriter, req *http.Request) {
-	addDocReq := &addDocumentsRequest{}
+// addDocumentHandler is used to store information provided to the vector store
+func addDocumentHandler(w http.ResponseWriter, req *http.Request) {
+	addDocReq := &addDocumentRequest{}
 
 	// Check if content-type is correct in the http request
 	contentType := req.Header.Get("Content-Type")
@@ -157,11 +166,7 @@ func addDocumentsHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Add request documents to vector store
-	var wvDocs []schema.Document
-	for _, doc := range addDocReq.Documents {
-		wvDocs = append(wvDocs, schema.Document{PageContent: doc.Information})
-	}
-	_, err = vectorStore.AddDocuments(ragCtx, wvDocs)
+	err = ai.Index(context.Background(), indexer, ai.WithIndexerDocs(ai.DocumentFromText(addDocReq.Document, nil)))
 	if err != nil {
 		http.Error(w, "Error adding documents to vector store", http.StatusInternalServerError)
 		slog.Error(err.Error())
@@ -192,20 +197,25 @@ func queryHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Search if query with similarity exists in vector store
-	docs, err := vectorStore.SimilaritySearch(ragCtx, queryReq.Query, 3)
+	queryReqDoc := ai.DocumentFromText(queryReq.Query, nil)
+	contextDocs, err := ai.Retrieve(context.Background(), retriever, ai.WithRetrieverDoc(queryReqDoc))
 	if err != nil {
-		http.Error(w, "Error searching for similarity in vector store", http.StatusInternalServerError)
+		http.Error(w, "Error searching for context in vector store", http.StatusInternalServerError)
 		slog.Error(err.Error())
 		return
 	}
-	var docsContents []string
-	for _, doc := range docs {
-		docsContents = append(docsContents, doc.PageContent)
+
+	// Append all the returned context docs with newline
+	var contextStr string
+	for _, doc := range contextDocs.Documents {
+		contextStr += doc.Content[0].Text + "\n"
 	}
 
+	// Create the rag query to be passed to the llm
+	ragQuery := fmt.Sprintf(ragQueryTemplate, queryReq.Query, contextStr)
+
 	// Prompt the llm with context and query
-	ragQuery := fmt.Sprintf(ragQueryTemplate, queryReq.Query, strings.Join(docsContents, "\n"))
-	ragResponse, err := llms.GenerateFromSinglePrompt(ragCtx, llmClient, ragQuery)
+	ragResponse, err := ai.GenerateText(context.Background(), llmModel, ai.WithTextPrompt(ragQuery))
 	if err != nil {
 		http.Error(w, "Error querying llm", http.StatusInternalServerError)
 		slog.Error(err.Error())
@@ -213,7 +223,11 @@ func queryHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Marshal the llm response to json
-	js, err := json.Marshal(ragResponse)
+	js, err := json.Marshal(&queryResponse{
+		Query:    queryReq.Query,
+		Context:  contextStr,
+		Response: ragResponse,
+	})
 	if err != nil {
 		http.Error(w, "Error marshaling response from llm", http.StatusInternalServerError)
 		slog.Error(err.Error())
@@ -246,7 +260,7 @@ func main() {
 
 	// Handlers for the http server
 	http.HandleFunc("POST /query", queryHandler)
-	http.HandleFunc("POST /add", addDocumentsHandler)
+	http.HandleFunc("POST /add", addDocumentHandler)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	})
@@ -283,8 +297,8 @@ func main() {
 		}
 		defer listener.Close()
 
-		// Create a limit listener to handle only 3 http connections at a time
-		limitListener := netutil.LimitListener(listener, 3)
+		// Create a limit listener to handle only given number of connections at a time
+		limitListener := netutil.LimitListener(listener, connections)
 
 		// Serve http requests on the limit listener
 		if err := server.Serve(limitListener); err != nil {
