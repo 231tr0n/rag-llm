@@ -77,10 +77,12 @@ Context:
 %s
 `
 
-var connections int
-var ollamaServerURL string
-var llmModelName string
-var webServerPort string
+var (
+	connections     int
+	ollamaServerURL string
+	llmModelName    string
+	webServerPort   string
+)
 
 func init() {
 	var err error
@@ -90,7 +92,7 @@ func init() {
 	log.SetFlags(0)
 
 	ollamaServerURL = cmp.Or(os.Getenv("OLLAMA_SERVER_URL"), "http://localhost:11434")
-	llmModelName = cmp.Or(os.Getenv("LLM_MODEL_NAME"), "llama3.2")
+	llmModelName = cmp.Or(os.Getenv("LLM_MODEL_NAME"), "llama3.2:1b")
 	webServerPort = cmp.Or(os.Getenv("WEB_SERVER_PORT"), ":8000")
 	// Paring connections env variable string to int
 	connections, err = strconv.Atoi(cmp.Or(os.Getenv("WEB_SERVER_CONNECTIONS"), "3"))
@@ -129,7 +131,11 @@ func init() {
 	}
 
 	// Get embeddings of the llm client
-	emb := ollama.Embedder(ollamaServerURL)
+	emb := ollama.DefineEmbedder(ollamaServerURL, llmModelName)
+	if emb == nil {
+		slog.Error("Could not retrieve embeddings")
+		os.Exit(1)
+	}
 
 	// Create new local vector store with embeddings
 	indexer, retriever, err = localvec.DefineIndexerAndRetriever("doc", localvec.Config{Dir: "temp", Embedder: emb})
