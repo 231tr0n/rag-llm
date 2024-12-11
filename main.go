@@ -25,7 +25,7 @@ import (
 	"github.com/firebase/genkit/go/plugins/ollama"
 )
 
-// Collection of documents
+// addDocumentRequest struct for adding document to vector store
 type addDocumentRequest struct {
 	Document string
 }
@@ -54,17 +54,16 @@ func (w *wrapperResponseWriter) WriteHeader(statusCode int) {
 	w.statusCode = statusCode
 }
 
-// Mutex for running a single request at a time
-var mu *sync.Mutex
-
-// indexer is local vector store indexer
-var indexer ai.Indexer
-
-// retriever is local vector store retriever
-var retriever ai.Retriever
-
-// Ollama model
-var llmModel ai.Model
+var (
+	mu              *sync.Mutex
+	indexer         ai.Indexer
+	retriever       ai.Retriever
+	llmModel        ai.Model
+	connections     int
+	ollamaServerURL string
+	llmModelName    string
+	webServerPort   string
+)
 
 // Rag model query template to be provided for the llm
 const ragQueryTemplate = `
@@ -77,13 +76,6 @@ Context:
 %s
 `
 
-var (
-	connections     int
-	ollamaServerURL string
-	llmModelName    string
-	webServerPort   string
-)
-
 func init() {
 	var err error
 
@@ -94,14 +86,12 @@ func init() {
 	ollamaServerURL = cmp.Or(os.Getenv("OLLAMA_SERVER_URL"), "http://localhost:11434")
 	llmModelName = cmp.Or(os.Getenv("LLM_MODEL_NAME"), "llama3.2:1b")
 	webServerPort = cmp.Or(os.Getenv("WEB_SERVER_PORT"), ":8000")
-	// Paring connections env variable string to int
 	connections, err = strconv.Atoi(cmp.Or(os.Getenv("WEB_SERVER_CONNECTIONS"), "3"))
 	if err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
 
-	// Log env variables
 	slog.Info("Environment parameters", "OLLAMA_SERVER_URL", ollamaServerURL, "LLM_MODEL_NAME", llmModelName, "WEB_SERVER_PORT", webServerPort, "WEB_SERVER_CONNECTIONS", connections)
 
 	// Initalize ollama package with server address
@@ -112,6 +102,7 @@ func init() {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
+
 	// Declare new ollama llm client
 	llmModel = ollama.DefineModel(ollama.ModelDefinition{
 		Name: llmModelName,
@@ -144,7 +135,7 @@ func init() {
 		os.Exit(1)
 	}
 
-	// Initialize a mutex
+	// Initialize the mutex which ensures only one request is handled at a time
 	mu = &sync.Mutex{}
 }
 
