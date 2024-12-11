@@ -55,13 +55,13 @@ func (w *wrapperResponseWriter) WriteHeader(statusCode int) {
 }
 
 var (
-	mu              *sync.Mutex
-	indexer         ai.Indexer
-	retriever       ai.Retriever
-	llmModel        ai.Model
 	connections     int
-	ollamaServerURL string
+	indexer         ai.Indexer
+	llmModel        ai.Model
 	llmModelName    string
+	mu              *sync.Mutex
+	ollamaServerURL string
+	retriever       ai.Retriever
 	webServerPort   string
 )
 
