@@ -1,10 +1,10 @@
 module github.com/231tr0n/rag-llm
 
-go 1.23.3
+go 1.23.4
 
 require (
 	github.com/firebase/genkit/go v0.2.1
-	golang.org/x/net v0.31.0
+	golang.org/x/net v0.33.0
 )
 
 require (
@@ -23,6 +23,6 @@ require (
 	go.opentelemetry.io/otel/sdk v1.26.0 // indirect
 	go.opentelemetry.io/otel/trace v1.26.0 // indirect
 	golang.org/x/exp v0.0.0-20240318143956-a85f2c67cd81 // indirect
-	golang.org/x/sys v0.27.0 // indirect
+	golang.org/x/sys v0.28.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
