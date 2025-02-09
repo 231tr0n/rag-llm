@@ -4,7 +4,7 @@ A RAG model with ollama and weviate.
 ## Querying
 ```bash
 curl -H 'Content-Type: application/json' \
-  -d '{"query": "Is bob an idiot?"}' \
+  -d '{"history": [{"role": "user", "text": "Is bob an idiot?"}]}'
   -X POST \
   http://localhost:8000/query
 ```

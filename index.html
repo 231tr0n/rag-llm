@@ -1,0 +1,194 @@
+<html>
+  <head>
+    <title>Chatbot</title>
+    <style>
+      body {
+        background-color: #0e1621;
+        padding: 20px;
+        font-size: 1.3em;
+      }
+
+      div.chat-input {
+        width: 100%;
+        height: 10%;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      div.button-group {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        height: 100%;
+        width: 13%;
+      }
+
+      div.chat-input > button.upload {
+        width: 100%;
+        height: 50%;
+      }
+
+      div.chat-input > button.send {
+        width: 100%;
+        height: 50%;
+      }
+
+      button {
+        background-color: #2b5278;
+        color: #17212b;
+        border: 1px solid #17212b;
+      }
+
+      button:hover {
+        background-color: #17212b;
+        color: white;
+        border: 1px solid #2b5278;
+      }
+
+      div.chat-input > textarea {
+        width: 85%;
+        height: 100%;
+        background-color: #17212b;
+        color: white;
+        border: 1px solid #2b5278;
+        resize: none;
+      }
+
+      div.chat-box {
+        height: 90%;
+        overflow: scroll;
+      }
+
+      div.message {
+        display: flex;
+        padding: 10px;
+        justify-content: left;
+      }
+
+      div.message:has(div.user) {
+        justify-content: right;
+      }
+
+      div.user {
+        max-width: 50%;
+        min-width: 300px;
+        background-color: #2b5278;
+        color: white;
+        border-radius: 5px;
+        padding: 10px;
+        text-align: justify;
+      }
+
+      div.assistant {
+        max-width: 50%;
+        min-width: 300px;
+        background-color: #182533;
+        color: white;
+        border-radius: 5px;
+        padding: 10px;
+        text-align: justify;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="chat-box" id="chat-box">
+      <div class="message">
+        <div class="assistant">
+          Hi! I am a chatbot. Please ask me any questions and I am happy to
+          answer and assist joyfully.
+        </div>
+      </div>
+    </div>
+    <div class="chat-input">
+      <textarea id="input"></textarea>
+      <div class="button-group">
+        <button id="send">Send</button>
+        <button id="upload">Upload</button>
+      </div>
+    </div>
+  </body>
+  <script>
+    let chatbox = document.getElementById("chat-box");
+    let upload = document.getElementById("upload");
+    let send = document.getElementById("send");
+    let input = document.getElementById("input");
+    let chat = [];
+
+    let create_chat = (content, user) => {
+      if (user) {
+        chatbox.innerHTML += `<div class="message"><div class="user">${content}</div></div>`;
+      } else {
+        chatbox.innerHTML += `<div class="message"><div class="assistant">${content}</div></div>`;
+      }
+    };
+
+    upload.onclick = async () => {
+      const content = input.value;
+      if (content === "") {
+        alert("No text entered.");
+        return;
+      }
+
+      try {
+        let tempObj = {};
+        tempObj.document = content;
+
+        const response = await fetch("/add", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(tempObj),
+        });
+        if (response.status == 200) {
+          alert("Uploaded");
+        } else {
+          alert("Upload failed");
+        }
+
+        input.value = "";
+      } catch (e) {
+        alert(e);
+      }
+    };
+
+    send.onclick = async () => {
+      const content = input.value;
+      if (content === "") {
+        alert("No text entered.");
+        return;
+      }
+
+      let tempObj = {};
+      tempObj.role = "user";
+      tempObj.text = content;
+
+      chat.push(tempObj);
+      try {
+        tempObj = {};
+        tempObj.history = chat;
+        const response = await fetch("/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(tempObj),
+        });
+        const chatResponse = await response.text();
+
+        tempObj = {};
+        tempObj.role = "model";
+        tempObj.text = chatResponse;
+        chat.push(tempObj);
+
+        create_chat(content, true);
+        create_chat(chatResponse, false);
+
+        input.value = "";
+      } catch (e) {
+        alert(e);
+      }
+    };
+  </script>
+</html>

@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -25,24 +26,26 @@ import (
 	"github.com/firebase/genkit/go/plugins/ollama"
 )
 
+//go:embed index.html
+var htmlWebPage string
+
 // addDocumentRequest struct for adding document to vector store
 type addDocumentRequest struct {
 	Document string
 }
 
-// queryRequest structs for unmarshaling query json
-type queryRequest struct {
-	Query string
+// chatMessage struct for unmarshaling chat history json
+type chatMessage struct {
+	Role string
+	Text string
 }
 
-// queryResponse structs for unmarshaling query json
-type queryResponse struct {
-	Query    string
-	Response string
-	Context  string
+// chatRequest struct for unmarshaling query json
+type chatRequest struct {
+	History []chatMessage
 }
 
-// WrapperResponseWriter for logging functionality
+// WrapperResponseWriter struct for logging functionality
 type wrapperResponseWriter struct {
 	http.ResponseWriter
 	statusCode int
@@ -65,14 +68,17 @@ var (
 	webServerPort   string
 )
 
-// Rag model query template to be provided for the llm
-const ragQueryTemplate = `
-You are a helpful agent that answers my questions with the help of the context if provided.
+// systemRole defines the behaviour of the model
+var systemRole = ai.NewTextMessage(
+	ai.RoleSystem,
+	"You are a chatbot that chats with users and answers their questions based on context provided by the user.",
+)
 
-Question:
+// Rag model query template to be provided for the llm
+const ragQueryTemplate = `Context:
 %s
 
-Context:
+Question:
 %s
 `
 
@@ -92,7 +98,17 @@ func init() {
 		os.Exit(1)
 	}
 
-	slog.Info("Environment parameters", "OLLAMA_SERVER_URL", ollamaServerURL, "LLM_MODEL_NAME", llmModelName, "WEB_SERVER_PORT", webServerPort, "WEB_SERVER_CONNECTIONS", connections)
+	slog.Info(
+		"Environment parameters",
+		"OLLAMA_SERVER_URL",
+		ollamaServerURL,
+		"LLM_MODEL_NAME",
+		llmModelName,
+		"WEB_SERVER_PORT",
+		webServerPort,
+		"WEB_SERVER_CONNECTIONS",
+		connections,
+	)
 
 	// Initalize ollama package with server address
 	err = ollama.Init(context.Background(), &ollama.Config{
@@ -129,7 +145,10 @@ func init() {
 	}
 
 	// Create new local vector store with embeddings
-	indexer, retriever, err = localvec.DefineIndexerAndRetriever("doc", localvec.Config{Dir: "temp", Embedder: emb})
+	indexer, retriever, err = localvec.DefineIndexerAndRetriever(
+		"doc",
+		localvec.Config{Dir: "temp", Embedder: emb},
+	)
 	if err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
@@ -162,8 +181,18 @@ func addDocumentHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if addDocReq.Document == "" {
+		http.Error(w, "Empty document", http.StatusBadRequest)
+		slog.Error("Empty document")
+		return
+	}
+
 	// Add request documents to vector store
-	err = ai.Index(context.Background(), indexer, ai.WithIndexerDocs(ai.DocumentFromText(addDocReq.Document, nil)))
+	err = ai.Index(
+		context.Background(),
+		indexer,
+		ai.WithIndexerDocs(ai.DocumentFromText(addDocReq.Document, nil)),
+	)
 	if err != nil {
 		http.Error(w, "Error adding documents to vector store", http.StatusInternalServerError)
 		slog.Error(err.Error())
@@ -171,8 +200,8 @@ func addDocumentHandler(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func queryHandler(w http.ResponseWriter, req *http.Request) {
-	queryReq := &queryRequest{}
+func chatHandler(w http.ResponseWriter, req *http.Request) {
+	chatReq := &chatRequest{}
 
 	// Check if content-type is correct in the http request
 	contentType := req.Header.Get("Content-Type")
@@ -186,54 +215,101 @@ func queryHandler(w http.ResponseWriter, req *http.Request) {
 	// Decode request body
 	dec := json.NewDecoder(req.Body)
 	dec.DisallowUnknownFields()
-	err = dec.Decode(queryReq)
+	err = dec.Decode(chatReq)
 	if err != nil {
 		http.Error(w, "Wrong json format for query request", http.StatusBadRequest)
 		slog.Error(err.Error())
 		return
 	}
 
-	// Search if query with similarity exists in vector store
-	queryReqDoc := ai.DocumentFromText(queryReq.Query, nil)
-	contextDocs, err := ai.Retrieve(context.Background(), retriever, ai.WithRetrieverDoc(queryReqDoc))
+	if len(chatReq.History) == 0 {
+		http.Error(w, "Empty chat history", http.StatusBadRequest)
+		slog.Error("Empty chat history")
+		return
+	}
+
+	if chatReq.History[len(chatReq.History)-1].Role != "user" {
+		http.Error(w, "Last message is not sent by user", http.StatusBadRequest)
+		slog.Error("Last message is not sent by user")
+		return
+	}
+
+	historyMessages := make([]*ai.Message, len(chatReq.History))
+
+	for index, historyMessage := range chatReq.History {
+		if historyMessage.Role == "user" {
+			historyTextDoc := ai.DocumentFromText(historyMessage.Text, nil)
+			contextDocs, err := ai.Retrieve(
+				context.Background(),
+				retriever,
+				ai.WithRetrieverDoc(historyTextDoc),
+			)
+			if err != nil {
+				http.Error(
+					w,
+					"Error searching for context in vector store",
+					http.StatusInternalServerError,
+				)
+				slog.Error(err.Error())
+				return
+			}
+
+			ragQuery := ""
+
+			if len(contextDocs.Documents) != 0 {
+				// Append all the returned context docs with newline
+				var contextStr string
+				for _, doc := range contextDocs.Documents {
+					contextStr += doc.Content[0].Text + "\n"
+				}
+
+				ragQuery = fmt.Sprintf(ragQueryTemplate, contextStr, historyMessage.Text)
+			} else {
+				ragQuery = historyMessage.Text
+			}
+
+			historyMessages[index] = ai.NewTextMessage(ai.RoleUser, ragQuery)
+		} else if historyMessage.Role == "model" {
+			historyMessages[index] = ai.NewTextMessage(ai.RoleModel, historyMessage.Text)
+		} else {
+			http.Error(
+				w,
+				"Wrong role sent",
+				http.StatusInternalServerError,
+			)
+			slog.Error("Wrong role sent")
+			return
+		}
+	}
+
+	historyMessages = append([]*ai.Message{systemRole}, historyMessages...)
+
+	out, err := json.Marshal(historyMessages)
 	if err != nil {
-		http.Error(w, "Error searching for context in vector store", http.StatusInternalServerError)
 		slog.Error(err.Error())
 		return
 	}
 
-	// Append all the returned context docs with newline
-	var contextStr string
-	for _, doc := range contextDocs.Documents {
-		contextStr += doc.Content[0].Text + "\n"
-	}
-
-	// Create the rag query to be passed to the llm
-	ragQuery := fmt.Sprintf(ragQueryTemplate, queryReq.Query, contextStr)
-
 	// Prompt the llm with context and query
-	ragResponse, err := ai.GenerateText(context.Background(), llmModel, ai.WithTextPrompt(ragQuery))
+	ragResponse, err := ai.GenerateText(
+		context.Background(),
+		llmModel,
+		ai.WithMessages(historyMessages...),
+	)
 	if err != nil {
 		http.Error(w, "Error querying llm", http.StatusInternalServerError)
 		slog.Error(err.Error())
 		return
 	}
 
-	// Marshal the llm response to json
-	js, err := json.Marshal(&queryResponse{
-		Query:    queryReq.Query,
-		Context:  contextStr,
-		Response: ragResponse,
-	})
-	if err != nil {
-		http.Error(w, "Error marshaling response from llm", http.StatusInternalServerError)
-		slog.Error(err.Error())
-		return
-	}
+	fmt.Println("----------------------------------")
+	slog.Info(string(out))
+	slog.Info(ragResponse)
+	fmt.Println("----------------------------------")
 
 	// Send marshalled json as response with 200 status
-	w.Header().Set("Content-Type", "application/json")
-	_, err = w.Write(js)
+	w.Header().Set("Content-Type", "text/plain")
+	_, err = w.Write([]byte(ragResponse))
 	if err != nil {
 		http.Error(w, "Error writing response", http.StatusInternalServerError)
 		slog.Error(err.Error())
@@ -256,7 +332,14 @@ func main() {
 	}()
 
 	// Handlers for the http server
-	http.HandleFunc("POST /query", queryHandler)
+	http.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, err := w.Write([]byte(htmlWebPage))
+		if err != nil {
+			slog.Error(err.Error())
+		}
+	})
+	http.HandleFunc("POST /chat", chatHandler)
 	http.HandleFunc("POST /add", addDocumentHandler)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
@@ -276,11 +359,35 @@ func main() {
 			time.Sleep(time.Second)
 			http.DefaultServeMux.ServeHTTP(wr, r)
 			if wr.statusCode > 399 {
-				slog.Warn("REQUEST", "method", r.Method, "ip", r.RemoteAddr, "time", time.Since(startTime).Round(time.Second), "status", wr.statusCode, "path", r.URL.Path)
+				slog.Warn(
+					"REQUEST",
+					"method",
+					r.Method,
+					"ip",
+					r.RemoteAddr,
+					"time",
+					time.Since(startTime).Round(time.Second),
+					"status",
+					wr.statusCode,
+					"path",
+					r.URL.Path,
+				)
 				mu.Unlock()
 				return
 			}
-			slog.Info("REQUEST", "method", r.Method, "ip", r.RemoteAddr, "time", time.Since(startTime).Round(time.Second), "status", wr.statusCode, "path", r.URL.Path)
+			slog.Info(
+				"REQUEST",
+				"method",
+				r.Method,
+				"ip",
+				r.RemoteAddr,
+				"time",
+				time.Since(startTime).Round(time.Second),
+				"status",
+				wr.statusCode,
+				"path",
+				r.URL.Path,
+			)
 			mu.Unlock()
 		}),
 	}
