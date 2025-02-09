@@ -2,6 +2,11 @@
   <head>
     <title>Chatbot</title>
     <style>
+      * {
+        scrollbar-color: var(--color-dark-keyword) transparent;
+        scrollbar-width: thin;
+      }
+
       body {
         background-color: #0e1621;
         padding: 20px;
@@ -57,7 +62,7 @@
 
       div.chat-box {
         height: 90%;
-        overflow: scroll;
+        overflow-y: scroll;
       }
 
       div.message {
