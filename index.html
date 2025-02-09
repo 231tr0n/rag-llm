@@ -82,7 +82,6 @@
         color: white;
         border-radius: 5px;
         padding: 10px;
-        text-align: justify;
       }
 
       div.assistant {
@@ -92,7 +91,6 @@
         color: white;
         border-radius: 5px;
         padding: 10px;
-        text-align: justify;
       }
     </style>
   </head>
@@ -125,11 +123,21 @@
     clear();
 
     let create_chat = (content, user) => {
+      const message = document.createElement("div");
+      message.classList.add("message");
+
+      const child = document.createElement("div");
+      child.innerText = content;
+
       if (user) {
-        chatbox.innerHTML += `<div class="message"><div class="user">${content}</div></div>`;
+        child.classList.add("user");
       } else {
-        chatbox.innerHTML += `<div class="message"><div class="assistant">${content}</div></div>`;
+        child.classList.add("assistant");
       }
+
+      message.appendChild(child);
+      chatbox.appendChild(message);
+
       chatbox.scrollTop = chatbox.scrollHeight;
     };
 
