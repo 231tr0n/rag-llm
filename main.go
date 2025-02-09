@@ -90,7 +90,7 @@ func init() {
 	log.SetFlags(0)
 
 	ollamaServerURL = cmp.Or(os.Getenv("OLLAMA_SERVER_URL"), "http://localhost:11434")
-	llmModelName = cmp.Or(os.Getenv("LLM_MODEL_NAME"), "llama3.2:1b")
+	llmModelName = cmp.Or(os.Getenv("LLM_MODEL_NAME"), "llama3.2:latest")
 	webServerPort = cmp.Or(os.Getenv("WEB_SERVER_PORT"), ":8000")
 	connections, err = strconv.Atoi(cmp.Or(os.Getenv("WEB_SERVER_CONNECTIONS"), "3"))
 	if err != nil {
