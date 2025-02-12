@@ -156,6 +156,8 @@
         let tempObj = {};
         tempObj.document = content;
 
+        input.value = "";
+
         const response = await fetch("/add", {
           method: "POST",
           headers: {
@@ -168,8 +170,6 @@
         } else {
           alert("Upload failed");
         }
-
-        input.value = "";
       } catch (e) {
         alert(e);
       }
@@ -190,6 +190,8 @@
 
       create_chat(content, true);
 
+      input.value = "";
+
       try {
         tempObj = {};
         tempObj.history = chat;
@@ -208,8 +210,6 @@
         chat.push(tempObj);
 
         create_chat(chatResponse, false);
-
-        input.value = "";
       } catch (e) {
         alert(e);
       }
