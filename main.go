@@ -188,8 +188,10 @@ func addDocumentHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Add request documents to vector store
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*1)
+	defer cancel()
 	err = ai.Index(
-		context.Background(),
+		ctx,
 		indexer,
 		ai.WithIndexerDocs(ai.DocumentFromText(addDocReq.Document, nil)),
 	)
@@ -239,8 +241,10 @@ func chatHandler(w http.ResponseWriter, req *http.Request) {
 	for index, historyMessage := range chatReq.History {
 		if historyMessage.Role == "user" {
 			historyTextDoc := ai.DocumentFromText(historyMessage.Text, nil)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute*1)
+			defer cancel()
 			contextDocs, err := ai.Retrieve(
-				context.Background(),
+				ctx,
 				retriever,
 				ai.WithRetrieverDoc(historyTextDoc),
 			)
@@ -291,8 +295,10 @@ func chatHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Prompt the llm with context and query
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*1)
+	defer cancel()
 	ragResponse, err := ai.GenerateText(
-		context.Background(),
+		ctx,
 		llmModel,
 		ai.WithMessages(historyMessages...),
 	)
